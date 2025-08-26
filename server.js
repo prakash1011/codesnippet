@@ -28,7 +28,8 @@ const { Pool } = require('pg');
 const useDb = !!process.env.DATABASE_URL;
 let pool;
 if(useDb){
-  pool = new Pool({connectionString: process.env.DATABASE_URL, ssl: process.env.NODE_ENV==='production'?{rejectUnauthorized:false}:false});
+  const isLocal = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost');
+  pool = new Pool({connectionString: process.env.DATABASE_URL, ssl: isLocal?false:{rejectUnauthorized:false}});
   pool.query('CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, password_hash TEXT NOT NULL);');
   pool.query('CREATE TABLE IF NOT EXISTS snippets (id SERIAL PRIMARY KEY, email TEXT NOT NULL, title TEXT NOT NULL, language TEXT NOT NULL, code TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW());');
 }
@@ -126,5 +127,5 @@ app.post('/api/snippets', authMiddleware, async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT}`));
