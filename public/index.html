@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Code Snippets</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body class="p-4">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4"><h1 class="mb-0">Code Snippets</h1><button id="logoutBtn" class="btn btn-outline-secondary">Logout</button></div>
+
+    <form id="addForm" class="mb-4">
+      <div class="row g-2">
+        <div class="col-md-3"><input class="form-control" placeholder="Title" name="title" required></div>
+        <div class="col-md-3"><input class="form-control" placeholder="Language (e.g. js)" name="language" required></div>
+        <div class="col-12"><textarea class="form-control" rows="6" placeholder="Paste code here" name="code" required></textarea></div>
+        <div class="col-12"><button class="btn btn-primary mt-2">Save</button></div>
+      </div>
+    </form>
+
+    <h2>Saved</h2>
+    <ul id="list" class="list-group"></ul>
+
+    <div id="view" class="mt-4 d-none">
+      <h3 id="viewTitle"></h3>
+      <pre><code id="viewCode" class="hljs"></code></pre>
+    </div>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+function token(){return localStorage.getItem('token')||'';}
+if(!token()) location.href='/login.html';
+document.getElementById('logoutBtn').onclick = () => { localStorage.removeItem('token'); location.href='/login.html'; };
+
+
+async function fetchSnippets() {
+  const res = await fetch('/api/snippets',{headers:{'Authorization':'Bearer '+token()}});
+  const data = await res.json();
+  const ul = document.getElementById('list');
+  ul.innerHTML = '';
+  data.forEach(s => {
+    const li = document.createElement('li');
+    li.className = 'list-group-item list-group-item-action';
+    li.textContent = `${s.title} (${s.language})`;
+    li.onclick = () => viewSnippet(s.id);
+    ul.appendChild(li);
+  });
+}
+
+async function viewSnippet(id) {
+  const res = await fetch('/api/snippets/' + id,{headers:{'Authorization':'Bearer '+token()}});
+  const snip = await res.json();
+  document.getElementById('viewTitle').textContent = `${snip.title} – ${snip.language}`;
+  const codeElem = document.getElementById('viewCode');
+  codeElem.textContent = snip.code;
+  codeElem.className = snip.language;
+  hljs.highlightElement(codeElem);
+  document.getElementById('view').classList.remove('d-none');
+}
+
+document.getElementById('addForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = {
+    title: form.title.value,
+    language: form.language.value,
+    code: form.code.value
+  };
+  await fetch('/api/snippets', {method: 'POST', headers: {'Content-Type': 'application/json','Authorization':'Bearer '+token()}, body: JSON.stringify(body)});
+  form.reset();
+  await fetchSnippets();
+});
+
+fetchSnippets();
+</script>
+</body>
+</html>
