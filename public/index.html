@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Code Snippets</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <style>
+    body { background-color: #f8f9fa; }
+    .snippet-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .snippet-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    .btn-copy { opacity: 0; transition: opacity 0.2s; }
+    .snippet-info:hover .btn-copy { opacity: 1; }
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 1100; }
+    .loader { width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #0d6efd; border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; margin-left: 10px; vertical-align: middle; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="p-4">
+  <div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1 class="mb-0">Code Snippets</h1>
+      <button id="logoutBtn" class="btn btn-outline-secondary">Logout</button>
+    </div>
+
+    <form id="addForm" class="mb-4 needs-validation" novalidate>
+      <div class="row g-2">
+        <div class="col-md-4">
+          <input class="form-control" placeholder="Title" name="title" required>
+          <div class="invalid-feedback">Please provide a title.</div>
+        </div>
+        <div class="col-md-2">
+          <input class="form-control" placeholder="Language" name="language" required>
+          <div class="invalid-feedback">Please specify the language.</div>
+        </div>
+        <div class="col-12">
+          <textarea class="form-control" rows="6" placeholder="Paste code here" name="code" required></textarea>
+          <div class="invalid-feedback">Please enter some code.</div>
+        </div>
+        <div class="col-12">
+          <button class="btn btn-primary mt-2" type="submit">
+            <span id="saveBtnText">Save</span>
+            <span id="saveBtnLoader" class="loader d-none"></span>
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <h2>Saved Snippets</h2>
+    <div id="loadingIndicator" class="text-center my-4">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+    <ul id="list" class="list-group"></ul>
+
+    <div id="view" class="mt-4 d-none">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 id="viewTitle"></h3>
+        <button id="copyBtn" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-clipboard">📋</i> Copy
+        </button>
+      </div>
+      <div class="position-relative">
+        <pre class="bg-light p-3 rounded"><code id="viewCode" class="hljs"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div class="toast-container">
+    <div id="toast" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body" id="toastMessage"></div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // Initialize Bootstrap tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl)
+    });
+
+    // Initialize Toast
+    const toastEl = document.getElementById('toast');
+    const toastMessage = document.getElementById('toastMessage');
+    const toast = new bootstrap.Toast(toastEl, { autohide: true, delay: 3000 });
+    
+    function showToast(message, type = 'success') {
+      toastEl.classList.remove('bg-success', 'bg-danger');
+      toastEl.classList.add(`bg-${type}`);
+      toastMessage.textContent = message;
+      toast.show();
+    }
+
+    function token() { return localStorage.getItem('token') || ''; }
+    if (!token()) location.href = '/login.html';
+    document.getElementById('logoutBtn').onclick = () => { 
+      localStorage.removeItem('token'); 
+      location.href = '/login.html'; 
+    };
+
+    // Form validation
+    const form = document.getElementById('addForm');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      if (!form.checkValidity()) {
+        e.stopPropagation();
+        form.classList.add('was-validated');
+        return;
+      }
+
+      const saveBtn = form.querySelector('button[type="submit"]');
+      const saveBtnText = document.getElementById('saveBtnText');
+      const saveBtnLoader = document.getElementById('saveBtnLoader');
+      
+      saveBtn.disabled = true;
+      saveBtnText.textContent = 'Saving...';
+      saveBtnLoader.classList.remove('d-none');
+
+      try {
+        const formData = new FormData(form);
+        const body = {
+          title: formData.get('title'),
+          language: formData.get('language'),
+          code: formData.get('code')
+        };
+        
+        const response = await fetch('/api/snippets', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token()
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to save snippet');
+        }
+
+        form.reset();
+        form.classList.remove('was-validated');
+        showToast('Snippet saved successfully!');
+        await fetchSnippets();
+      } catch (error) {
+        console.error('Error saving snippet:', error);
+        showToast('Failed to save snippet', 'danger');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtnText.textContent = 'Save';
+        saveBtnLoader.classList.add('d-none');
+      }
+    });
+
+    // Copy to clipboard
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const code = document.getElementById('viewCode').textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        showToast('Code copied to clipboard!');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        showToast('Failed to copy code', 'danger');
+      });
+    });
+
+    async function fetchSnippets() {
+      const list = document.getElementById('list');
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      
+      try {
+        loadingIndicator.classList.remove('d-none');
+        list.innerHTML = '';
+        
+        const res = await fetch('/api/snippets', { 
+          headers: { 'Authorization': 'Bearer ' + token() } 
+        });
+        
+        if (!res.ok) throw new Error('Failed to fetch snippets');
+        
+        const data = await res.json();
+        
+        if (data.length === 0) {
+          list.innerHTML = `
+            <div class="alert alert-info">
+              No snippets found. Add your first snippet above!
+            </div>
+          `;
+          return;
+        }
+        
+        data.forEach(snippet => {
+          const li = document.createElement('li');
+          li.className = 'list-group-item d-flex justify-content-between align-items-center snippet-card mb-2';
+          
+          const snippetInfo = document.createElement('div');
+          snippetInfo.className = 'snippet-info flex-grow-1';
+          snippetInfo.style.cursor = 'pointer';
+          
+          const title = document.createElement('h5');
+          title.className = 'mb-1';
+          title.textContent = snippet.title;
+          
+          const meta = document.createElement('div');
+          meta.className = 'text-muted small';
+          meta.textContent = `${snippet.language} • ${new Date(snippet.created_at).toLocaleString()}`;
+          
+          snippetInfo.appendChild(title);
+          snippetInfo.appendChild(meta);
+          
+          const btnGroup = document.createElement('div');
+          btnGroup.className = 'btn-group btn-group-sm';
+          
+          const viewBtn = document.createElement('button');
+          viewBtn.className = 'btn btn-outline-primary';
+          viewBtn.textContent = 'View';
+          viewBtn.onclick = (e) => {
+            e.stopPropagation();
+            viewSnippet(snippet.id);
+          };
+          
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'btn btn-outline-danger';
+          deleteBtn.innerHTML = '&times;';
+          deleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+            if (confirm('Are you sure you want to delete this snippet?')) {
+              try {
+                const response = await fetch(`/api/snippets/${snippet.id}`, {
+                  method: 'DELETE',
+                  headers: { 'Authorization': 'Bearer ' + token() }
+                });
+                
+                if (!response.ok) throw new Error('Failed to delete snippet');
+                
+                showToast('Snippet deleted successfully!');
+                await fetchSnippets();
+              } catch (error) {
+                console.error('Error deleting snippet:', error);
+                showToast('Failed to delete snippet', 'danger');
+              }
+            }
+          };
+          
+          btnGroup.appendChild(viewBtn);
+          btnGroup.appendChild(deleteBtn);
+          
+          li.appendChild(snippetInfo);
+          li.appendChild(btnGroup);
+          
+          list.appendChild(li);
+        });
+      } catch (error) {
+        console.error('Error fetching snippets:', error);
+        showToast('Failed to load snippets', 'danger');
+      } finally {
+        loadingIndicator.classList.add('d-none');
+      }
+    }
+
+    // Store the currently viewed snippet ID
+    let currentSnippetId = null;
+
+    async function viewSnippet(id) {
+      const viewSection = document.getElementById('view');
+      
+      // If clicking the same snippet that's currently open, toggle the view
+      if (currentSnippetId === id) {
+        viewSection.classList.add('d-none');
+        currentSnippetId = null;
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/snippets/' + id, {
+          headers: { 'Authorization': 'Bearer ' + token() }
+        });
+        
+        if (!res.ok) throw new Error('Failed to load snippet');
+        
+        const snip = await res.json();
+        document.getElementById('viewTitle').textContent = `${snip.title} – ${snip.language}`;
+        
+        const codeElem = document.getElementById('viewCode');
+        codeElem.textContent = snip.code;
+        codeElem.className = snip.language;
+        
+        // Apply syntax highlighting
+        hljs.highlightElement(codeElem);
+        
+        // Show the view section and scroll to it
+        viewSection.classList.remove('d-none');
+        viewSection.scrollIntoView({ behavior: 'smooth' });
+        
+        // Update the current snippet ID
+        currentSnippetId = id;
+        
+      } catch (error) {
+        console.error('Error viewing snippet:', error);
+        showToast('Failed to load snippet', 'danger');
+      }
+    }
+
+    // Initial fetch
+    fetchSnippets();
+  </script>
+</body>
+</html>
