@@ -14,9 +14,22 @@ function saveSnip() {fs.writeFileSync(DATA_FILE, JSON.stringify(snippets, null, 
 // users storage (email + passwordHash)
 const USER_FILE = path.join(__dirname, 'users.json');
 let users = [];
-if (fs.existsSync(USER_FILE)) {
-  try { users = JSON.parse(fs.readFileSync(USER_FILE, 'utf8')); } catch(e) { users = []; }
+if (fs.existsSync(DATA_FILE)) {
+  try { 
+    snippets = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    // If any snippets don't have an email, add a default one (for existing data)
+    snippets = snippets.map(snippet => {
+      if (!snippet.email) {
+        snippet.email = 'default@example.com'; // Or any default email
+      }
+      return snippet;
+    });
+    saveSnip(); // Save the updated snippets
+  } catch(e) { 
+    snippets = []; 
+  }
 }
+
 function saveUsers() {fs.writeFileSync(USER_FILE, JSON.stringify(users, null, 2));}
 
 const bcrypt = require('bcryptjs');
@@ -91,50 +104,87 @@ app.post('/api/login', async (req,res)=>{
 
 // ---------- Snippet Routes (protected) ----------
 app.get('/api/snippets', authMiddleware, async (req, res) => {
-  if(useDb){
-    const {rows} = await pool.query('SELECT id,title,language,created_at FROM snippets ORDER BY id DESC');
-    res.json(rows);
-  } else {
-    const rows = snippets.map(({id,title,language,created_at})=>({id,title,language,created_at})).reverse();
-    res.json(rows);
+  try {
+    if(useDb){
+      const {rows} = await pool.query(
+        'SELECT id, title, language, created_at FROM snippets WHERE email = $1 ORDER BY created_at DESC',
+        [req.user.email]
+      );
+      res.json(rows);
+    } else {
+      const userSnippets = snippets
+        .filter(snip => snip.email === req.user.email)
+        .map(({id, title, language, created_at}) => ({id, title, language, created_at}));
+      res.json(userSnippets);
+    }
+  } catch (error) {
+    console.error('Error fetching snippets:', error);
+    res.status(500).json({ error: 'Server error while fetching snippets' });
   }
 });
 
 app.get('/api/snippets/:id', authMiddleware, async (req, res) => {
-  if(useDb){
-    const {rows} = await pool.query('SELECT * FROM snippets WHERE id=$1',[req.params.id]);
-    if(!rows.length) return res.status(404).json({error:'Not found'});
-    res.json(rows[0]);
-  } else {
-    const snip = snippets.find(s=>s.id==req.params.id);
-    if (!snip) return res.status(404).json({ error: 'Not found' });
-    res.json(snip);
+  try {
+    if(useDb){
+      const {rows} = await pool.query(
+        'SELECT * FROM snippets WHERE id = $1 AND email = $2',
+        [req.params.id, req.user.email]
+      );
+      if(!rows.length) return res.status(404).json({error:'Not found or unauthorized'});
+      res.json(rows[0]);
+    } else {
+      const snip = snippets.find(s => s.id == req.params.id && s.email === req.user.email);
+      if (!snip) return res.status(404).json({ error: 'Not found or unauthorized' });
+      res.json(snip);
+    }
+  } catch (error) {
+    console.error('Error fetching snippet:', error);
+    res.status(500).json({ error: 'Server error while fetching snippet' });
   }
 });
 
 app.post('/api/snippets', authMiddleware, async (req, res) => {
   const { title, language, code } = req.body;
   if (!title || !language || !code) return res.status(400).json({ error: 'Missing fields' });
-  if(useDb){
-    const {rows} = await pool.query('INSERT INTO snippets(email,title,language,code) VALUES($1,$2,$3,$4) RETURNING id',[req.user.email,title,language,code]);
-    res.json({id: rows[0].id});
-  } else {
-    const id = snippets.length?Math.max(...snippets.map(s=>s.id))+1:1;
-    const snip = {id, title, language, code, created_at: new Date().toISOString()};
-    snippets.push(snip);
-    saveSnip();
-    res.json({ id });
+  
+  try {
+    if(useDb){
+      const {rows} = await pool.query(
+        'INSERT INTO snippets(email, title, language, code) VALUES($1, $2, $3, $4) RETURNING id',
+        [req.user.email, title, language, code]
+      );
+      res.json({id: rows[0].id});
+    } else {
+      const id = snippets.length ? Math.max(...snippets.map(s => s.id)) + 1 : 1;
+      const snip = {
+        id,
+        email: req.user.email,  // Add user's email to the snippet
+        title,
+        language,
+        code,
+        created_at: new Date().toISOString()
+      };
+      snippets.push(snip);
+      saveSnip();
+      res.json({ id });
+    }
+  } catch (error) {
+    console.error('Error saving snippet:', error);
+    res.status(500).json({ error: 'Server error while saving snippet' });
   }
 });
 
 app.delete('/api/snippets/:id', authMiddleware, async (req, res) => {
   try {
     if(useDb) {
-      const { rowCount } = await pool.query('DELETE FROM snippets WHERE id = $1', [req.params.id]);
-      if (rowCount === 0) return res.status(404).json({ error: 'Snippet not found' });
+      const { rowCount } = await pool.query(
+        'DELETE FROM snippets WHERE id = $1 AND email = $2',
+        [req.params.id, req.user.email]
+      );
+      if (rowCount === 0) return res.status(404).json({ error: 'Snippet not found or unauthorized' });
     } else {
-      const index = snippets.findIndex(s => s.id == req.params.id);
-      if (index === -1) return res.status(404).json({ error: 'Snippet not found' });
+      const index = snippets.findIndex(s => s.id == req.params.id && s.email === req.user.email);
+      if (index === -1) return res.status(404).json({ error: 'Snippet not found or unauthorized' });
       snippets.splice(index, 1);
       saveSnip();
     }
